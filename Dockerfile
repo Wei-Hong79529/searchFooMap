@@ -11,8 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. 複製專案原始碼到容器內
 COPY . .
 
-# 5. 設定 Cloud Run 需要的 Port 環境變數 (Cloud Run 預設會塞 PORT=8080 進來)
-ENV PORT=8080
+# 5. 設定 Cloud Run 需要的 Port 環境變數 (Cloud Run 預設會塞 PORT=8000 進來)
+ENV PORT=8000
 
 # 6. 啟動指令 (請根據你的框架修改)
 # 如果是 Flask 搭配 gunicorn
