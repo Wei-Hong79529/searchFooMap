@@ -1,5 +1,5 @@
 # 1. 使用官方的輕量級 Python 映像檔 (Slim 版本體積小、安全性高)
-FROM python3.11-slim
+FROM python:3.11-slim
 
 # 2. 設定容器內的工作目錄
 WORKDIR app
