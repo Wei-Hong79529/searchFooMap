@@ -18,4 +18,4 @@ ENV PORT=8080
 # 如果是 Flask 搭配 gunicorn
 # CMD exec gunicorn --bind $PORT --workers 1 --threads 8 --timeout 0 appapp
 # 如果是 FastAPI 搭配 uvicorn
-CMD [sh, -c, uvicorn mainapp --host 0.0.0.0 --port ${PORT}]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT}"]
