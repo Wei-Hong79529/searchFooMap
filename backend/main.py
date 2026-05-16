@@ -18,10 +18,11 @@ GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
 
 class ReportRequest(BaseModel):
     region: str = Field(..., description="請輸入想查詢的地區名稱", examples=["台中市西屯區"])
+    lang: str = Field("zh-TW", description="語言", examples=["en"])
 
-async def fetch_single_query_pages(url: str, headers: dict, q: str) -> list:
+async def fetch_single_query_pages(url: str, headers: dict, q: str, lang: str) -> list:
     """異步抓取單個關鍵字的最多3頁資料"""
-    payload = {"textQuery": q, "languageCode": "zh-TW"}
+    payload = {"textQuery": q, "languageCode": lang}
     results = []
     
     for _ in range(3):
@@ -44,7 +45,7 @@ async def fetch_single_query_pages(url: str, headers: dict, q: str) -> list:
             
     return results
 
-async def fetch_google_places(query: str):
+async def fetch_google_places(query: str, lang: str = "zh-TW"):
     """接入真正的 Google Maps Places API 獲取店家資料"""
     if not GOOGLE_MAPS_API_KEY:
         # 如果使用者尚未設定 API Key，回傳假資料以免系統崩潰
@@ -76,7 +77,7 @@ async def fetch_google_places(query: str):
         ])
     
     # 建立多個非同步任務，同時對多個關鍵字發送請求 (大幅提升效率)
-    tasks = [fetch_single_query_pages(url, headers, q) for q in search_queries]
+    tasks = [fetch_single_query_pages(url, headers, q, lang) for q in search_queries]
     all_results_lists = await asyncio.gather(*tasks)
     
     all_places_dict = {} # 用 dict 去重複
@@ -120,7 +121,7 @@ class MarkdownGenerator:
 # ====== 1. 後端 API 查詢接口 ======
 @app.post("/api/generate")
 async def generate_report(req: ReportRequest):
-    places = await fetch_google_places(req.region)
+    places = await fetch_google_places(req.region, req.lang)
     
     # 依據最新需求，不再剔除 3.5 星以下的結果，保留「全部資料」
     filtered = places

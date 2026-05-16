@@ -1,29 +1,56 @@
-# Google Map 高分店家指南 API 與 UI 介面
+# Google Map 高分店家指南系統
 
-這是一套依據架構師規劃所構建的完整服務，同時包含了「**現代化直覺 UI 介面**」與「**真實 Google Map API 串接**」。
+這是一套完整的前後端整合服務，提供「**現代化直覺 UI 介面**」與「**真實 Google Map API 串接**」，能幫助你快速發掘各地區的高分美食與店家。不僅支援跨平台響應式設計，更具備強大的時段感知與多語系功能。
 
-## 🚀 專案功能
-1. 提供完整的網頁 UI，使用者可以直接在輸入框填寫地區（如：台南市中西區 牛肉湯）。
-2. 串接真實的 [Google Maps Places API](https://developers.google.com/maps/documentation/places/web-service/overview)。
-3. 自動將回傳資料過濾出 3.5 顆星以上的店家，並使用 Markdown 與 HTML 混合渲染表格呈現給使用者。
+## 🚀 核心專案功能
 
-## 📥 安裝與啟動
-由於架構師規劃的 Next.js 前後端分離方案需要龐大的 Node.js 開發環境支援，為了確保您能「一鍵順暢啟動」，我們採用了 FastAPI 內建的 HTML Response 將 UI 直接整合成單一檔案，極大化了便利性。
+1. **現代化響應式 UI (RWD)**：使用 Tailwind CSS 打造高質感介面，並完整支援手機、平板與電腦版面。按鈕圖示化（SVG 搜尋按鈕）讓畫面更簡潔。
+2. **智慧擴充搜尋與去重複**：突破 Google Maps API 單次最高 60 筆的限制。透過智慧化關鍵字展開（如自動拆分餐廳、小吃、咖啡廳），一次最高可網羅 240 筆不重複的當地店家。
+3. **超高速並行查詢**：利用 Python `asyncio` 非同步多執行緒架構，讓擴展後的龐大搜尋任務平行處理，將原本需要數秒的等待時間大幅縮短。
+4. **🎲 時段感知隨機抽籤**：
+   - 解決「今天吃什麼」的選擇困難！點擊按鈕，系統會自動在搜尋結果中為你隨機抽籤。
+   - **時段感知功能**：系統會依據你當下的時間，自動過濾出符合該時段的餐廳（例如：晚上 10 點優先抽出「宵夜、串燒」，下午 3 點優先抽出「咖啡、甜點」），若不滿意還可無限次點擊「再試一次」瞬間重抽！
+5. **🌐 多語系即時切換 (i18n)**：支援**繁體中文**、**簡體中文**與 **English**。切換語系不僅會即時更新畫面文字（無需重整），更會同步改變 Google Maps API 回傳的地點語言！
+6. **一鍵導航地圖**：前端渲染的表格與抽籤視窗中，店家地址皆附有 Google Maps 專屬連結，點擊即可開新分頁精準定位。
 
-請開啟終端機執行：
-```powershell
-# 1. 進入目錄並安裝輕量化依賴 (已移除笨重的爬蟲工具)
-cd ImplentSpec
-pip install -r requirements.txt
+## 📂 目錄架構
 
-# 2. 【重要】設定您的正式 Google Maps API 金鑰
-$env:GOOGLE_MAPS_API_KEY="Google Maps API"
-
-# 3. 啟動伺服器
-python main.py
+```text
+SearchFoodMap/
+├── frontend/                 # 前端專案資料夾
+│   ├── index.html            # UI 介面 (支援 RWD、語系選單)
+│   └── app.js                # 前端互動邏輯、翻譯字典、分頁與抽籤控制
+├── backend/                  # 後端專案資料夾
+│   ├── main.py               # FastAPI 伺服器與非同步核心邏輯
+│   └── requirements.txt      # Python 套件依賴
+└── Dockerfile                # 容器化部署設定檔
 ```
 
+## 📥 安裝與啟動
+
+我們採用了 FastAPI 作為後端核心，並直接讓後端伺服器負責提供靜態的前端檔案，確保您能「一鍵順暢啟動」。
+
+請開啟終端機並執行以下指令：
+
+```powershell
+# 1. 進入專案目錄
+cd SearchFoodMap
+
+# 2. 安裝後端所需套件
+pip install -r backend/requirements.txt
+
+# 3. 【重要】設定您的 Google Maps API 金鑰 (請替換成真實的金鑰)
+$env:GOOGLE_MAPS_API_KEY="您的_API_KEY"
+
+# 4. 啟動伺服器
+python backend/main.py
+```
+> **提示**：如果在開發過程中需要熱重載 (Hot Reload)，可以使用指令 `uvicorn backend.main:app --reload`。
+
 ## 🎮 如何使用 UI
-伺服器啟動後，請不要去枯燥的 Swagger 網頁了！
-請直接打開瀏覽器，前往：**[http://localhost:8000/](http://localhost:8000/)**
-您將會看見為您量身打造的美麗地圖搜尋介面，輸入地區按下 Enter，帶有排版的質感 Markdown 表格就會出現在您眼前！
+
+伺服器啟動後，請打開您的瀏覽器，前往：**[http://localhost:8080/](http://localhost:8080/)**
+
+1. **搜尋餐廳**：輸入地區或食物名稱（例如：`台南市中西區` 或 `台中 西屯 牛肉湯`）並點擊放大鏡按鈕。
+2. **切換語系**：在畫面右上角的下拉選單，可以隨時無縫切換多種語言介面。
+3. **隨機抽餐廳**：搜尋完成後，點擊右側橘色的「🎲 隨機抽籤」按鈕，讓系統依據時間為你推薦下一餐！
