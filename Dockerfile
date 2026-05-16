@@ -1,21 +1,31 @@
-# 1. 使用官方的輕量級 Python 映像檔 (Slim 版本體積小、安全性高)
+# Stage 1: 編譯前端 (TypeScript to JavaScript)
+FROM node:20-slim AS build-stage
+WORKDIR /app/frontend
+
+# 複製 package.json 並安裝依賴
+COPY frontend/package*.json ./
+RUN npm install
+
+# 複製前端原始碼並執行編譯
+COPY frontend/ ./
+RUN npm run build
+
+# Stage 2: 執行後端服務
 FROM python:3.11-slim
+WORKDIR /app
 
-# 2. 設定容器內的工作目錄
-WORKDIR app
-
-# 3. 先複製 requirements.txt 並安裝相依套件 (利用 Docker 快取機制加速後續 Build)
-COPY backend/requirements.txt .
+# 安裝 Python 依賴
+COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 4. 複製專案原始碼到容器內
-COPY . .
+# 複製後端程式碼
+COPY backend/ ./backend/
 
-# 5. 設定 Cloud Run 需要的 Port 環境變數 (Cloud Run 預設會塞 PORT=8080 進來)
+# 從第一階段複製編譯後的靜態檔案到容器內
+COPY --from=build-stage /app/frontend/dist ./frontend/dist
+
+# 設定環境變數
 ENV PORT=8080
 
-# 6. 啟動指令 (請根據你的框架修改)
-# 如果是 Flask 搭配 gunicorn
-# CMD exec gunicorn --bind $PORT --workers 1 --threads 8 --timeout 0 appapp
-# 如果是 FastAPI 搭配 uvicorn
+# 啟動指令
 CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT}"]

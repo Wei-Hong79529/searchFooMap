@@ -2,17 +2,40 @@ import os
 import re
 import requests
 import asyncio
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import uvicorn
 from pathlib import Path
+# pyrefly: ignore [missing-import]
+from slowapi import Limiter, _rate_limit_exceeded_handler
+# pyrefly: ignore [missing-import]
+from slowapi.util import get_remote_address
+# pyrefly: ignore [missing-import]
+from slowapi.errors import RateLimitExceeded
+
+# ====== Rate Limiting 設定 ======
+# 使用客戶端 IP 作為限流 key，防止單一來源濫用 API
+limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(title="Google Maps UI Searcher")
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-FRONTEND_DIR = BASE_DIR / "frontend"
+# 掛載 Rate Limiter 到 FastAPI
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# ====== CORS 設定 ======
+# 限制允許的來源，防止其他網站跨域呼叫你的 API
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 # 這裡負責抓取環境變數中的 GOOGLE_MAPS_API_KEY
 # 請在終端機設定 `$env:GOOGLE_MAPS_API_KEY="AIza..."`
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY", "")
@@ -61,13 +84,14 @@ def extract_region_keywords(query: str) -> list:
     例如 '新北市板橋區' -> ['板橋區']
     例如 '台北市' -> ['台北市']
     """
-    # 優先匹配最精確的行政區劃 (區、鄉、鎮)
-    districts = re.findall(r'[\u4e00-\u9fff]{1,5}(?:區|鄉|鎮)', query)
+    # 只匹配最精確的行政區名稱 (例如從 '台北市信義區' 提取出 '信義區')
+    # 使用 [^市縣]* 確保不會連縣市名稱一起抓進來，並限制在 2-4 個字
+    districts = re.findall(r'([^市縣\s]{1,3}(?:區|鄉|鎮))', query)
     if districts:
         return districts
 
     # 其次匹配市/縣
-    cities = re.findall(r'[\u4e00-\u9fff]{1,5}(?:市|縣)', query)
+    cities = re.findall(r'([\u4e00-\u9fff]{2,3}(?:市|縣))', query)
     if cities:
         return cities
 
@@ -86,11 +110,7 @@ def filter_by_region(places: list, region_keywords: list) -> list:
         if any(kw in addr for kw in region_keywords):
             filtered.append(p)
 
-    # 如果過濾後完全沒有結果 (可能是地址格式不匹配)，退回原始結果
-    if not filtered:
-        print(f"[地區過濾] 關鍵字 {region_keywords} 未匹配到任何地址，退回全部 {len(places)} 筆結果")
-        return places
-
+    # 嚴格過濾：不再退回原始結果，確保結果一定符合指定的行政區
     print(f"[地區過濾] 關鍵字 {region_keywords} 過濾: {len(places)} -> {len(filtered)} 筆")
     return filtered
 
@@ -106,10 +126,22 @@ async def fetch_single_query_pages(url: str, headers: dict, q: str, lang: str, l
     results = []
     
     for _ in range(3):
-        # 使用 asyncio.to_thread 讓原本阻塞的 requests.post 在獨立執行緒運行，避免卡住主程式
-        response = await asyncio.to_thread(requests.post, url, json=payload, headers=headers)
+        # 實作重試邏輯以處理網路不穩定 (例如 DNS 解析失敗)
+        max_retries = 3
+        response = None
+        for attempt in range(max_retries):
+            try:
+                # 使用 asyncio.to_thread 讓原本阻塞的 requests.post 在獨立執行緒運行，避免卡住主程式
+                response = await asyncio.to_thread(requests.post, url, json=payload, headers=headers)
+                break # 成功則跳出重試迴圈
+            except (requests.exceptions.RequestException) as e:
+                if attempt == max_retries - 1:
+                    print(f"API 請求最終失敗 (經過 {max_retries} 次嘗試): {e}")
+                    return results # 回傳目前已抓取的結果
+                print(f"網路異常，正在進行第 {attempt + 1} 次重試... (錯誤: {e})")
+                await asyncio.sleep(1) # 等待 1 秒後重試
         
-        if response.status_code == 200:
+        if response and response.status_code == 200:
             data = response.json()
             places_batch = data.get("places", [])
             results.extend(places_batch)
@@ -120,8 +152,11 @@ async def fetch_single_query_pages(url: str, headers: dict, q: str, lang: str, l
                 
             payload["pageToken"] = next_token
         else:
-            print(f"API 請求錯誤 (Status: {response.status_code}): {response.text}")
+            status = response.status_code if response else "Unknown"
+            text = response.text if response else "No response"
+            print(f"API 請求錯誤 (Status: {status}): {text}")
             break
+
             
     return results
 
@@ -157,8 +192,10 @@ async def fetch_google_places(query: str, lang: str = "zh-TW"):
     search_queries = []
     has_specific_keyword = any(keyword in query for keyword in ["餐廳", "湯", "麵", "飯", "小吃", "店", "咖啡", "館", "美食"])
     
+    # 永遠包含原始輸入關鍵字進行搜尋，確保精確匹配
+    search_queries.append(query)
+    
     if has_specific_keyword:
-        search_queries.append(query)
         search_queries.append(query + " 推薦")
     else:
         search_queries.extend([
@@ -225,8 +262,10 @@ async def fetch_google_hotels(query: str, lang: str = "zh-TW"):
     search_queries = []
     has_specific_keyword = any(keyword in query for keyword in ["飯店", "旅館", "民宿", "酒店", "旅社", "hotel", "Hotel", "inn", "hostel"])
 
+    # 永遠包含原始輸入關鍵字進行搜尋
+    search_queries.append(query)
+
     if has_specific_keyword:
-        search_queries.append(query)
         search_queries.append(query + " 推薦")
     else:
         search_queries.extend([
@@ -328,7 +367,8 @@ class MarkdownGenerator:
 
 # ====== 1. 後端 API 查詢接口 ======
 @app.post("/api/generate")
-async def generate_report(req: ReportRequest):
+@limiter.limit("10/minute")  # 每個 IP 每分鐘最多 10 次搜尋
+async def generate_report(request: Request, req: ReportRequest):
     search_type = req.search_type
     
     if search_type == "hotel":
@@ -375,14 +415,24 @@ async def generate_report(req: ReportRequest):
 async def favicon():
     return Response(content=b"", media_type="image/x-icon")
 
-# ====== 2. 前端 UI 介面 (直接由 FastAPI 提供服務) ======
+FRONTEND_DIR = BASE_DIR / "frontend" / "dist"
+
+# ====== 2. 前端 UI 介面 (掛載 Vite 編譯後的靜態檔案) ======
+from fastapi.staticfiles import StaticFiles
+
+# 檢查 dist 目錄是否存在，如果不存在則使用原始 frontend 目錄 (開發模式)
+if not FRONTEND_DIR.exists():
+    FRONTEND_DIR = BASE_DIR / "frontend"
+
+# 掛載靜態資源 (如 assets/ 夾)
+app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets" if (FRONTEND_DIR / "assets").exists() else FRONTEND_DIR), name="assets")
+
 @app.get("/", response_class=FileResponse)
 async def serve_ui():
-    return FileResponse(FRONTEND_DIR / "index.html")
-
-@app.get("/app.js", response_class=FileResponse)
-async def serve_js():
-    return FileResponse(FRONTEND_DIR / "app.js")
+    index_path = FRONTEND_DIR / "index.html"
+    if not index_path.exists():
+        return Response(content="Frontend not built. Please run 'npm run build' in frontend directory.", status_code=404)
+    return FileResponse(index_path)
 
 if __name__ == "__main__":
     print("啟動服務中...")
