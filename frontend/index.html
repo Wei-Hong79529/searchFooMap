@@ -4,7 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Google Map 推薦美食餐廳系統</title>
+    <title>Google Map 推薦美食 & 旅館搜尋系統</title>
+    <meta name="description" content="使用 Google Maps API 快速搜尋地區美食餐廳與高評分旅館飯店，支援多語系、隨機推薦功能。">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
@@ -29,11 +30,63 @@
         .hidden {
             display: none !important;
         }
+
+        /* 搜尋類型 Tab 動畫 */
+        .tab-btn {
+            transition: all 0.25s ease;
+            position: relative;
+        }
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 10%;
+            width: 80%;
+            height: 3px;
+            border-radius: 2px;
+        }
+        .tab-btn-food.active {
+            color: #2563eb;
+            background-color: #eff6ff;
+            border-color: #2563eb;
+        }
+        .tab-btn-food.active::after {
+            background-color: #2563eb;
+        }
+        .tab-btn-hotel.active {
+            color: #7c3aed;
+            background-color: #f5f3ff;
+            border-color: #7c3aed;
+        }
+        .tab-btn-hotel.active::after {
+            background-color: #7c3aed;
+        }
+
+        /* 旅館模式的搜尋按鈕主題色 */
+        .hotel-mode .search-btn {
+            background-color: #7c3aed !important;
+        }
+        .hotel-mode .search-btn:hover {
+            background-color: #6d28d9 !important;
+        }
+
+        /* 旅館模式的隨機按鈕主題色 */
+        .hotel-mode .random-btn-theme {
+            background-color: #7c3aed !important;
+        }
+        .hotel-mode .random-btn-theme:hover {
+            background-color: #6d28d9 !important;
+        }
+
+        /* 旅館模式 Modal 主題色 */
+        .hotel-mode .modal-header-theme {
+            background-color: #7c3aed !important;
+        }
     </style>
 </head>
 
-<body class="bg-slate-50 min-h-screen text-slate-800 p-4 sm:p-8 font-sans">
-    <div class="max-w-4xl mx-auto bg-white p-4 sm:p-8 rounded-xl shadow-sm border border-slate-200 relative">
+<body class="bg-slate-50 min-h-screen text-slate-800 p-4 sm:p-8 font-sans" id="app-body">
+    <div class="max-w-5xl mx-auto bg-white p-4 sm:p-8 rounded-xl shadow-sm border border-slate-200 relative">
         
         <!-- 語系切換器 -->
         <div class="absolute top-4 right-4 sm:top-8 sm:right-8">
@@ -46,16 +99,34 @@
 
         <h1 id="app-title" class="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6 text-slate-900 border-b pb-4 pr-24">📍 Google Maps 高分店家指南</h1>
 
+        <!-- 搜尋類型 Tab 切換 -->
+        <div class="flex gap-2 mb-4" id="search-type-tabs">
+            <button id="tab-food" onclick="switchSearchType('food')"
+                class="tab-btn tab-btn-food active px-4 py-2 rounded-lg border border-slate-200 font-semibold text-sm flex items-center gap-2 cursor-pointer">
+                🍜 <span id="tab-food-text">美食餐廳</span>
+            </button>
+            <button id="tab-hotel" onclick="switchSearchType('hotel')"
+                class="tab-btn tab-btn-hotel px-4 py-2 rounded-lg border border-slate-200 font-semibold text-sm text-slate-500 flex items-center gap-2 cursor-pointer">
+                🏨 <span id="tab-hotel-text">旅館飯店</span>
+            </button>
+        </div>
+
         <div class="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-6">
             <input type="text" id="region"
                 class="border border-slate-300 p-3 w-full rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="請輸入想查詢的地區 (例如：台南市中西區 牛肉湯)">
             <button id="btn-search" onclick="search()" title="搜尋"
-                class="bg-blue-600 text-white px-5 py-3 w-full sm:w-auto rounded-lg hover:bg-blue-700 transition-colors flex justify-center items-center shadow-sm">
+                class="search-btn bg-blue-600 text-white px-5 py-3 w-full sm:w-auto rounded-lg hover:bg-blue-700 transition-colors flex justify-center items-center shadow-sm">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
             </button>
+        </div>
+
+        <!-- 旅館模式提示 -->
+        <div id="hotel-hint" class="hidden text-sm text-violet-600 bg-violet-50 border border-violet-200 rounded-lg px-4 py-2 mb-4 flex items-center gap-2">
+            <span>💡</span>
+            <span id="hotel-hint-text">旅館/飯店模式：自動過濾 3.5 顆星以上的住宿，為您篩選優質旅宿。</span>
         </div>
 
         <div id="loading" class="text-slate-500 hidden flex items-center gap-2 mb-6 font-medium">
@@ -72,19 +143,21 @@
         <div id="result-container" class="hidden">
             <div class="flex justify-between items-center mb-4">
                 <h2 id="text-recommend" class="text-xl font-bold text-slate-800">為您推薦的店家</h2>
-                <button id="btn-random" onclick="pickRandomRestaurant()" class="bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 font-semibold transition-colors flex items-center gap-2 shadow-sm">
+                <button id="btn-random" onclick="pickRandomRestaurant()" class="random-btn-theme bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 font-semibold transition-colors flex items-center gap-2 shadow-sm">
                     🎲 隨機抽籤
                 </button>
             </div>
             <div class="overflow-x-auto bg-white rounded-lg border border-slate-200">
                 <table class="w-full text-left border-collapse">
-                    <thead>
+                    <thead id="table-head">
                         <tr class="bg-slate-100 border-b border-slate-200 text-slate-800">
                             <th id="th-name" class="p-3 font-semibold">店家名稱</th>
                             <th id="th-address" class="p-3 font-semibold">地址</th>
                             <th id="th-phone" class="p-3 font-semibold">電話</th>
                             <th id="th-rating" class="p-3 font-semibold">評分</th>
                             <th id="th-reviews" class="p-3 font-semibold">評論數</th>
+                            <th id="th-price" class="p-3 font-semibold hidden">價位</th>
+                            <th id="th-website" class="p-3 font-semibold hidden">網站</th>
                         </tr>
                     </thead>
                     <tbody id="table-body" class="text-slate-700">
@@ -110,14 +183,20 @@
     <!-- 隨機抽籤 Modal -->
     <div id="random-modal" class="hidden fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 opacity-0 transition-opacity duration-300">
         <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden transform scale-95 transition-transform duration-300" id="random-modal-content">
-            <div class="bg-amber-500 p-6 text-center">
-                <div class="text-5xl mb-2">🎉</div>
+            <div class="modal-header-theme bg-amber-500 p-6 text-center">
+                <div class="text-5xl mb-2" id="modal-icon">🎉</div>
                 <h3 id="modal-title" class="text-2xl font-bold text-white">今天吃這家！</h3>
             </div>
             <div class="p-6 text-center">
                 <h4 id="random-name" class="text-xl font-bold text-slate-800 mb-2">店家名稱</h4>
                 <p id="random-rating" class="text-amber-500 font-bold mb-4">4.5 ⭐ (100 則評論)</p>
-                <p id="random-address" class="text-slate-600 text-sm mb-6">地址...</p>
+                <p id="random-address" class="text-slate-600 text-sm mb-2">地址...</p>
+                <!-- 旅館模式額外資訊 -->
+                <div id="random-hotel-extra" class="hidden mb-4">
+                    <p id="random-price" class="text-violet-600 font-semibold text-sm mb-1"></p>
+                    <a id="random-website" href="#" target="_blank" class="text-blue-500 hover:underline text-sm hidden">🌐 前往官方網站</a>
+                </div>
+                <div class="mb-4" id="random-address-spacer"></div>
                 <div class="flex flex-col gap-3">
                     <button id="btn-reroll" onclick="pickRandomRestaurant()" class="w-full bg-amber-50 text-amber-600 border border-amber-200 px-4 py-2 rounded-lg hover:bg-amber-100 font-semibold transition-colors flex justify-center items-center gap-2">
                         🎲 再試一次
