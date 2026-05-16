@@ -5,7 +5,7 @@ FROM python:3.11-slim
 WORKDIR app
 
 # 3. 先複製 requirements.txt 並安裝相依套件 (利用 Docker 快取機制加速後續 Build)
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 4. 複製專案原始碼到容器內
@@ -18,4 +18,4 @@ ENV PORT=8080
 # 如果是 Flask 搭配 gunicorn
 # CMD exec gunicorn --bind $PORT --workers 1 --threads 8 --timeout 0 appapp
 # 如果是 FastAPI 搭配 uvicorn
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT}"]
